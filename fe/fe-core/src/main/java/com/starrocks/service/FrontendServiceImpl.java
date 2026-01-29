@@ -1635,8 +1635,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(), request.getUser_ip());
             TableId tableId = new TableId(request.getDb(), request.getTbl());
             StreamLoadKvParams params = new StreamLoadKvParams(request.getParams());
-            RequestLoadResult loadResult = GlobalStateMgr.getCurrentState()
-                    .getBatchWriteMgr().requestLoad(tableId, params, request.getBackend_id(), request.getBackend_host());
+            RequestLoadResult loadResult = GlobalStateMgr.getCurrentState().getBatchWriteMgr().requestLoad(
+                            tableId, params, request.getUser(), request.getBackend_id(), request.getBackend_host());
             result.setStatus(loadResult.getStatus());
             if (loadResult.isOk()) {
                 result.setLabel(loadResult.getValue());
@@ -2064,7 +2064,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tIndex.setTablets(index.getTablets().stream().map(tablet -> {
                 TOlapTableTablet tTablet = new TOlapTableTablet();
                 tTablet.setId(tablet.getId());
-                tTablet.setRange(tablet.getRange().toThrift());
+                if (tablet.getRange() != null) {
+                    tTablet.setRange(tablet.getRange().toThrift());
+                }
                 return tTablet;
             }).collect(Collectors.toList()));
             tPartition.addToIndexes(tIndex);
@@ -2367,6 +2369,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             Partition partition = olapTable.getPartition(partitionName, isTemp);
+            // partition maybe dropped between create and get, e.g. by TTL cleaner.
+            // Skip this partition and let BE handle it as partition not exist, data will be filtered.
+            if (partition == null) {
+                LOG.warn("partition {} is dropped during auto partition creation, skip it", partitionName);
+                continue;
+            }
             PhysicalPartition physicalPartition = partition.getDefaultPhysicalPartition();
             tPartition = new TOlapTablePartition();
             tPartition.setId(physicalPartition.getId());
@@ -2505,7 +2513,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tIndex.setTablets(index.getTablets().stream().map(tablet -> {
                 TOlapTableTablet tTablet = new TOlapTableTablet();
                 tTablet.setId(tablet.getId());
-                tTablet.setRange(tablet.getRange().toThrift());
+                if (tablet.getRange() != null) {
+                    tTablet.setRange(tablet.getRange().toThrift());
+                }
                 return tTablet;
             }).collect(Collectors.toList()));
             tPartition.addToIndexes(tIndex);
@@ -2672,7 +2682,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                 // STREAM LOAD
                 StreamLoadMgr streamLoadManager = GlobalStateMgr.getCurrentState().getStreamLoadMgr();
-                StreamLoadTask streamLoadTask = streamLoadManager.getTaskById(request.getJob_id());
+                AbstractStreamLoadTask streamLoadTask = streamLoadManager.getTaskById(request.getJob_id());
                 if (streamLoadTask != null) {
                     trackingLoadInfoList = convertStreamLoadInfoList(request);
                 }
